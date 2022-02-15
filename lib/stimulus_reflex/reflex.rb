@@ -63,6 +63,12 @@ class StimulusReflex::Reflex
     end
   end
 
+  def update_query(next_params = {})
+    uri, path, current_params = parse_url(request.fullpath)
+    query_hash = ActiveSupport::HashWithIndifferentAccess.new({ **current_params, **next_params })
+    @url = "#{path}?#{query_hash.to_query}"
+  end
+
   def controller
     @controller ||= controller_class.new.tap do |c|
       next_request = build_request
@@ -124,9 +130,7 @@ class StimulusReflex::Reflex
 
   def build_request
     begin
-      uri = URI.parse(url)
-      path = ActionDispatch::Journey::Router::Utils.normalize_path(uri.path)
-      query_hash = Rack::Utils.parse_nested_query(uri.query)
+      uri, path, query_hash = parse_url(url)
       mock_env = Rack::MockRequest.env_for(uri.to_s)
 
       mock_env.merge!(
@@ -158,6 +162,13 @@ class StimulusReflex::Reflex
       req = request_params.apply!
 
       req
+    end
+
+    def parse_url(url)
+      uri = URI.parse(url)
+      path = ActionDispatch::Journey::Router::Utils.normalize_path(uri.path)
+      query_hash = Rack::Utils.parse_nested_query(uri.query)
+      [uri, path, query_hash]
     end
   end
 end
