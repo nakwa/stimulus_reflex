@@ -63,9 +63,9 @@ class StimulusReflex::Reflex
     end
   end
 
-  def update_query(next_params = {})
-    uri, path, current_params = parse_url(request.fullpath)
-    query_hash = ActiveSupport::HashWithIndifferentAccess.new({ **current_params, **next_params })
+  def update_query(next_query = {})
+    uri, path, query_hash = parse_url(request.fullpath)
+    query_hash = ActiveSupport::HashWithIndifferentAccess.new({ **query_hash, **next_query })
     @url = "#{path}?#{query_hash.to_query}"
   end
 
