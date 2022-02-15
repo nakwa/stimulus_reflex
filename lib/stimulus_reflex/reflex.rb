@@ -53,40 +53,7 @@ class StimulusReflex::Reflex
   end
 
   def request
-    @request ||= begin
-      uri = URI.parse(url)
-      path = ActionDispatch::Journey::Router::Utils.normalize_path(uri.path)
-      query_hash = Rack::Utils.parse_nested_query(uri.query)
-      mock_env = Rack::MockRequest.env_for(uri.to_s)
-
-      mock_env.merge!(
-        "rack.request.query_hash" => query_hash,
-        "rack.request.query_string" => uri.query,
-        "ORIGINAL_SCRIPT_NAME" => "",
-        "ORIGINAL_FULLPATH" => path,
-        Rack::SCRIPT_NAME => "",
-        Rack::PATH_INFO => path,
-        Rack::REQUEST_PATH => path,
-        Rack::QUERY_STRING => uri.query
-      )
-
-      env = connection.env.merge(mock_env)
-
-      middleware = StimulusReflex.config.middleware
-
-      if middleware.any?
-        stack = middleware.build(Rails.application.routes)
-        stack.call(env)
-      end
-
-      req = ActionDispatch::Request.new(env)
-
-      # fetch path params (controller, action, ...) and apply them
-      request_params = StimulusReflex::RequestParameters.new(params: @params, req: req, url: url)
-      req = request_params.apply!
-
-      req
-    end
+    @request ||= build_request
   end
 
   def morph(selectors, html = nil)
@@ -103,12 +70,18 @@ class StimulusReflex::Reflex
     end
   end
 
+  def update_query(next_query = {})
+    uri, path, current_query = parse_url(request.fullpath)
+    query_hash = ActiveSupport::HashWithIndifferentAccess.new({ **current_query, **next_query })
+    @url = "#{path}?#{query_hash.to_query}"
+  end
+
   def controller
     @controller ||= controller_class.new.tap do |c|
-      request.headers.merge!(headers)
+      next_request = build_request
       c.instance_variable_set :@stimulus_reflex, true
-      c.set_request! request
-      c.set_response! controller_class.make_response!(request)
+      c.set_request! next_request
+      c.set_response! controller_class.make_response!(next_request)
     end
 
     instance_variables.each { |name| @controller.instance_variable_set name, instance_variable_get(name) }
@@ -158,5 +131,51 @@ class StimulusReflex::Reflex
   def render_collection(resource, content = nil)
     content ||= render(resource)
     tag.div(content.html_safe, id: dom_id(resource).from(1))
+  end
+
+  private
+
+  def build_request
+    begin
+      uri, path, query_hash = parse_url(url)
+      mock_env = Rack::MockRequest.env_for(uri.to_s)
+
+      mock_env.merge!(
+        "rack.request.query_hash" => query_hash,
+        "rack.request.query_string" => uri.query,
+        "ORIGINAL_SCRIPT_NAME" => "",
+        "ORIGINAL_FULLPATH" => path,
+        Rack::SCRIPT_NAME => "",
+        Rack::PATH_INFO => path,
+        Rack::REQUEST_PATH => path,
+        Rack::QUERY_STRING => uri.query
+      )
+
+      env = connection.env.merge(mock_env)
+
+      middleware = StimulusReflex.config.middleware
+
+      if middleware.any?
+        stack = middleware.build(Rails.application.routes)
+        stack.call(env)
+      end
+
+      req = ActionDispatch::Request.new(env)
+
+      req.headers.merge!(headers)
+
+      # fetch path params (controller, action, ...) and apply them
+      request_params = StimulusReflex::RequestParameters.new(params: @params, req: req, url: url)
+      req = request_params.apply!
+
+      req
+    end
+
+    def parse_url(url)
+      uri = URI.parse(url)
+      path = ActionDispatch::Journey::Router::Utils.normalize_path(uri.path)
+      query_hash = Rack::Utils.parse_nested_query(uri.query)
+      [uri, path, query_hash]
+    end
   end
 end
